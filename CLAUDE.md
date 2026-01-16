@@ -219,6 +219,44 @@ Sidekiq handles asynchronous tasks:
 - **NEVER create new styles** in design system files without permission
 - **Always generate semantic HTML**
 
+## Impeccable Design Commands
+
+Reference: https://impeccable.style/cheatsheet
+
+Use `/i-*` commands proactively when working on frontend/UI tasks:
+
+### When to Use (Proactive Triggers)
+
+| Situation | Command | Why |
+|-----------|---------|-----|
+| Creating new UI components/pages | `/i-normalize` | Ensure alignment with design system from the start |
+| UI looks bland or generic | `/i-bolder` or `/i-colorize` | Add visual interest and personality |
+| UI feels overwhelming or busy | `/i-quieter` or `/i-simplify` | Reduce visual noise |
+| Before shipping any UI work | `/i-polish` | Final quality pass for alignment, spacing, consistency |
+| Adding user interactions | `/i-animate` | Add purposeful motion and micro-interactions |
+| Writing error messages, labels, buttons | `/i-clarify` | Improve UX copy clarity |
+| Building forms or flows | `/i-onboard` | Design proper onboarding and empty states |
+| After completing UI feature | `/i-audit` | Technical quality check (a11y, perf, responsive) |
+| Want design feedback | `/i-critique` | UX and design review with actionable feedback |
+
+### Command Categories
+
+| Category | Commands | Purpose |
+|----------|----------|---------|
+| **Diagnostic** | `/i-audit`, `/i-critique` | Analyze and review |
+| **Quality** | `/i-normalize`, `/i-polish`, `/i-optimize`, `/i-harden` | Ensure production-ready |
+| **Intensity** | `/i-bolder`, `/i-quieter` | Adjust visual impact |
+| **Adaptation** | `/i-clarify`, `/i-simplify`, `/i-adapt` | Refine for context |
+| **Enhancement** | `/i-animate`, `/i-colorize`, `/i-delight` | Add personality |
+| **System** | `/i-extract`, `/i-onboard`, `/i-teach-impeccable` | Design system work |
+
+### Workflow Integration
+
+- After creating ViewComponents → run `/i-normalize` then `/i-polish`
+- Before PR with UI changes → run `/i-audit`
+- When UI feels "off" but you can't pinpoint why → run `/i-critique`
+- New feature with empty states → run `/i-onboard`
+
 ## Component Architecture
 
 ### ViewComponent vs Partials Decision Making
