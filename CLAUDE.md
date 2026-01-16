@@ -257,6 +257,17 @@ Use `/i-*` commands proactively when working on frontend/UI tasks:
 - When UI feels "off" but you can't pinpoint why → run `/i-critique`
 - New feature with empty states → run `/i-onboard`
 
+### Ralph Loop Integration
+
+When running `/ralph-loop` on UI/frontend tasks, after tests pass:
+1. Run `code-simplifier` on modified files
+2. If UI work was done:
+   - `/i-normalize` - align with design system
+   - `/i-polish` - final quality pass
+   - `/i-audit` - a11y/perf/responsive check
+3. Run tests again to verify
+4. Commit on green
+
 ## Component Architecture
 
 ### ViewComponent vs Partials Decision Making
