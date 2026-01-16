@@ -266,7 +266,20 @@ When running `/ralph-loop` on UI/frontend tasks, after tests pass:
    - `/i-polish` - final quality pass
    - `/i-audit` - a11y/perf/responsive check
 3. Run tests again to verify
-4. Commit on green
+4. Update documentation before commit:
+   - `docs/` - if API or behavior changed
+   - `rfcs/` - if design decisions were made
+   - `plans/` or `fix_plan.md` - update progress
+   - `CHANGELOG.md` - user-facing changes
+5. Commit on green
+
+### Pre-Completion Checklist (All Tasks)
+
+Before marking any task as complete, verify:
+- [ ] Docs updated (if API/behavior changed)
+- [ ] RFCs updated (if design decisions made)
+- [ ] Plans/progress updated
+- [ ] CHANGELOG.md updated (user-facing changes)
 
 ## Component Architecture
 

@@ -88,7 +88,11 @@ DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. FULL IMPLEMENTATIONS ONL
       - Run /i-polish for final quality pass
       - Run /i-audit for a11y/perf/responsive check
    c. Run tests again to verify changes didn't break anything
-   d. Update fix_plan.md
+   d. Update documentation:
+      - Update relevant docs/ if API or behavior changed
+      - Update RFCs if design decisions were made
+      - Update progress in plans/ or fix_plan.md
+      - Update CHANGELOG.md with user-facing changes
    e. git add -A, git commit, git push
 7. If tests fail: debug, fix, repeat
 8. Document learnings in AGENT.md
