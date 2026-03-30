@@ -4,6 +4,7 @@
 
 | Date | CRIT | HIGH | MED | LOW | INFO | Fixes Applied | New Findings |
 |------|------|------|-----|-----|------|---------------|--------------|
+| 2026-03-30 | 1 | 2 | 18 | 14 | 3 | 0 | 5 |
 | 2026-03-29 | 1 | 2 | 16 | 11 | 3 | 0 | 6 |
 | 2026-03-26 | 1 | 2 | 13 | 8 | 3 | 4 | 5 |
 | 2026-03-25 | 2 | 5 | 10 | 6 | 3 | 0 | 23 |
@@ -12,7 +13,7 @@
 
 ---
 
-## Latest: PENTEST-2026-03-29
+## Latest: PENTEST-2026-03-30
 
 **Status**: Analysis only — no code changes applied
 
@@ -24,12 +25,11 @@
 ### New Findings This Session
 | # | Finding | Severity |
 |---|---------|----------|
-| MED-14 | SSO identity unlink without re-auth | MEDIUM |
-| MED-15 | API key revocation without re-auth | MEDIUM |
-| MED-16 | Stored XSS via innerHTML in confirm dialog | MEDIUM |
-| LOW-09 | Admin can remove members without re-auth | LOW |
-| LOW-10 | Provider form double `.html_safe` | LOW |
-| LOW-11 | Guides view `.html_safe` without sanitize | LOW |
+| MED-17 | API key exposed in URL query parameter | MEDIUM |
+| MED-18 | CSP in report-only mode (not enforced) | MEDIUM |
+| LOW-12 | Unscoped find on EnableBankingAccount | LOW |
+| LOW-13 | No Pundit verify_authorized enforcement | LOW |
+| LOW-14 | Unscoped InviteCode.find (admin-only) | LOW |
 
 ### Verified Fixes (No Regressions)
 - CRIT-02: SQL injection ORDER BY (fixed 2026-03-26)
@@ -42,11 +42,14 @@
 1. **CRIT-01**: Add password verification to password change flow
 2. **MED-16**: Replace `innerHTML` with `textContent` in confirm dialog
 3. **HIGH-01/02**: Add password verification to account deletion and email change
+4. **MED-17**: Remove API key from URL query parameter support
+5. **MED-18**: Switch CSP to enforcement mode
 
 ---
 
 ## Report History
 
+- [PENTEST-2026-03-30](./PENTEST-2026-03-30.md) — 5 new findings, 0 fixes (analysis only)
 - [PENTEST-2026-03-29](./PENTEST-2026-03-29.md) — 6 new findings, 0 fixes (analysis only)
 - [PENTEST-2026-03-26](./PENTEST-2026-03-26.md) — 5 new findings, 4 fixes
 - [PENTEST-2026-03-25](./PENTEST-2026-03-25.md) — 23 new findings, 0 fixes (analysis only)
@@ -55,14 +58,14 @@
 
 ---
 
-## Total Open Findings: 33
+## Total Open Findings: 38
 
 | Severity | Count |
 |----------|-------|
 | CRITICAL | 1 |
 | HIGH | 2 |
-| MEDIUM | 16 |
-| LOW | 11 |
+| MEDIUM | 18 |
+| LOW | 14 |
 | INFO | 3 |
 
 **Next scheduled pentest**: 2026-04-12 (biweekly)
