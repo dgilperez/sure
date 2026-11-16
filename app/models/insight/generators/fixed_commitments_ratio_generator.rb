@@ -10,7 +10,9 @@
 #
 # Outflows are expense series plus recurring payments into a loan. Payments
 # into a credit card are left out: they repay spending that is already counted
-# on the card, much of it not fixed at all.
+# on the card, much of it not fixed at all. Both sides of the ratio read only
+# accounts every active member can see, since the feed is shared and the body
+# names series and income.
 #
 # The figure six months ago is rebuilt from the series in force on that date,
 # priced through their price history, so a series swapped for another of the
@@ -32,16 +34,20 @@ class Insight::Generators::FixedCommitmentsRatioGenerator < Insight::Generator
     return [] unless current_income.positive? && previous_income.positive?
 
     current = monthly_commitments(series.select(&:active?))
-    previous = monthly_commitments(series.select { |s| in_force_on?(s, reference_date) }, on: reference_date)
-    return [] if current.empty?
+    previous = monthly_commitments(series.select { |recurring| in_force_on_reference_date?(recurring) }, on: reference_date)
+    return [] if current.empty? || previous.empty?
 
     current_total = current.values.sum
+    previous_total = previous.values.sum
     current_ratio = current_total / current_income * 100
-    previous_ratio = previous.values.sum / previous_income * 100
+    previous_ratio = previous_total / previous_income * 100
     rise_pp = current_ratio - previous_ratio
     crossed_ceiling = previous_ratio < CEILING_PCT && current_ratio >= CEILING_PCT
     return [] unless rise_pp >= RISE_THRESHOLD_PP || crossed_ceiling
 
+    # The share of the rise that comes from income alone: the same commitments
+    # measured against the new income instead of the old.
+    income_part_pp = current_total / current_income * 100 - current_total / previous_income * 100
     variant = current_ratio >= CEILING_PCT ? "over_half" : "up"
 
     [
@@ -53,53 +59,76 @@ class Insight::Generators::FixedCommitmentsRatioGenerator < Insight::Generator
         facts: {
           current_ratio: decimal_fact(current_ratio),
           previous_ratio: decimal_fact(previous_ratio),
-          change_pp: decimal_fact(rise_pp),
           commitments: format_money(current_total),
           income: format_money(current_income),
-          explanation: explanation(current, previous, current_income, previous_income)
+          explanation: explanation(current, previous, previous_income: previous_income, current_income: current_income,
+                                                      mention_income: income_part_pp >= rise_pp / 2)
         },
-        # Whole points: recurring amounts nudge with every averaged charge, and
-        # a fraction of a point is not a new insight.
+        # Banded by the rise threshold: the reference window rolls every month
+        # and averaged amounts nudge with every charge, so only a climb into the
+        # next band is a new insight. One key for the family, so an acknowledged
+        # rise is not raised again next month with the same numbers.
         metadata: {
-          current_ratio: round(current_ratio, 0),
-          previous_ratio: round(previous_ratio, 0)
+          current_band: (current_ratio / RISE_THRESHOLD_PP).floor * RISE_THRESHOLD_PP
         },
         period: income_window(months_back: 0),
-        dedup_key: "fixed_commitments_ratio:#{month_token}"
+        dedup_key: "fixed_commitments_ratio"
       )
     ]
   end
 
   private
+    # The last day of the earlier income window, so the comparison moves once
+    # a month with the windows rather than every night.
     def reference_date
-      @reference_date ||= Date.current << WINDOW_MONTHS
+      @reference_date ||= income_window(months_back: WINDOW_MONTHS).end_date
     end
 
-    # Every outflow series that was ever confirmed, on accounts every active
-    # member can see: the body names them. Suggestions were never in force.
+    def shared_accounts
+      family.accounts.visible.accessible_by_all_active_members
+    end
+
+    def income_statement
+      @income_statement ||= IncomeStatement.new(family, accounts: shared_accounts)
+    end
+
+    # Every outflow series that was ever confirmed. Suggestions were never in force.
     def series
-      @series ||= begin
-        loans = family.accounts.where(accountable_type: "Loan").select(:id)
-        outflows = RecurringTransaction.where(destination_account_id: nil)
-                                       .or(RecurringTransaction.where(destination_account_id: loans))
-        family.recurring_transactions
-          .where.not(status: :suggested)
-          .where("recurring_transactions.amount > 0")
-          .merge(outflows)
-          .within_accounts(family.accounts.accessible_by_all_active_members)
-          .includes(:merchant, :recurrence_rules, :recurring_price_changes)
-          .to_a
-      end
+      @series ||= family.recurring_transactions
+        .where.not(status: :suggested)
+        .obligations(%w[Loan])
+        .within_accounts(shared_accounts)
+        .includes(:merchant, :recurrence_rules, :recurring_price_changes)
+        .to_a
     end
 
-    # Started on or before `date` (its earliest occurrence, or its creation
-    # for a series created ahead of its history), and not yet over by then.
-    def in_force_on?(recurring, date)
-      started_on = [ recurring.created_at.to_date, first_due_on[recurring.id] ].compact.min
-      return false if started_on > date
+    def in_force_on_reference_date?(recurring)
+      return false if started_after_reference_date?(recurring)
       return true if recurring.active?
 
-      (recurring.cancelled_on || recurring.last_occurrence_date) >= date
+      (recurring.cancelled_on || recurring.last_occurrence_date) >= reference_date
+    end
+
+    # Only a start Sure actually saw counts as new. A series known before the
+    # reference date was in force then. One confirmed since is traced back
+    # through its earliest occurrence or a past first due date, but history is
+    # backfilled for a limited window only, so a start within one cycle of
+    # where that window could begin is the edge of the history, not the start
+    # of the commitment. A series declared going forward, with nothing before
+    # its creation, is assumed to have been there all along.
+    def started_after_reference_date?(recurring)
+      created_on = recurring.created_at.to_date
+      return false if created_on <= reference_date
+
+      first_seen = [ first_due_on[recurring.id], recurring.anchor_date ].compact.min
+      return false if first_seen.nil? || first_seen >= created_on
+
+      history_floor = [ reference_date, created_on << RecurringTransaction::Pipeline::FIRST_RUN_BACKFILL_MONTHS ].max
+      first_seen > history_floor + cycle_days(recurring)
+    end
+
+    def cycle_days(recurring)
+      (365.25 / recurring.schedule.occurrences_per_year).round
     end
 
     def first_due_on
@@ -142,24 +171,29 @@ class Insight::Generators::FixedCommitmentsRatioGenerator < Insight::Generator
       sorted.size.odd? ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
     end
 
-    # The series that grew the most (new ones count in full), or, when none
-    # grew, the drop in income that raised the share instead.
-    def explanation(current, previous, current_income, previous_income)
+    # The series that grew the most (new ones count in full), and the drop in
+    # income when it drove at least half the rise. A series that replaced
+    # another is compared with the one it replaced.
+    def explanation(current, previous, previous_income:, current_income:, mention_income:)
+      predecessors = previous.keys.select(&:replaced_by_id).index_by(&:replaced_by_id)
       contributors = current.filter_map do |recurring, amount|
-        added = amount - previous.fetch(recurring, 0)
-        [ recurring, added ] if added.positive?
+        before = previous[recurring] || previous[predecessors[recurring.id]]
+        added = amount - (before || 0)
+        [ recurring, added, before ] if added.positive?
       end
 
-      if contributors.empty?
-        return I18n.t("insights.fixed_commitments_ratio.income_fell",
-                      previous_income: format_money(previous_income), current_income: format_money(current_income))
+      sentences = []
+      if contributors.any?
+        names = contributors.max_by(MAX_CONTRIBUTORS) { |_, added, _| added }.map do |recurring, added, before|
+          I18n.t("insights.fixed_commitments_ratio.contributor.#{before ? "raised" : "new"}",
+                 name: recurring.display_name, amount: format_money(added))
+        end
+        sentences << I18n.t("insights.fixed_commitments_ratio.contributors", list: names.to_sentence)
       end
-
-      names = contributors.max_by(MAX_CONTRIBUTORS) { |_, added| added }.map do |recurring, added|
-        key = previous.key?(recurring) ? "raised" : "new"
-        I18n.t("insights.fixed_commitments_ratio.contributor.#{key}",
-               name: recurring.display_name, amount: format_money(added))
+      if mention_income
+        sentences << I18n.t("insights.fixed_commitments_ratio.income_fell",
+                            previous_income: format_money(previous_income), current_income: format_money(current_income))
       end
-      I18n.t("insights.fixed_commitments_ratio.contributors", list: names.to_sentence)
+      sentences.join(" ")
     end
 end

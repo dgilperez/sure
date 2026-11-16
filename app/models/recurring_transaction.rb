@@ -362,16 +362,20 @@ class RecurringTransaction < ApplicationRecord
   # credit-card or loan payment is a real obligation with a real due date,
   # even though it is a transfer and not spending. (It stays excluded from
   # any budget/category math for exactly that reason.)
-  scope :payable, -> {
+  scope :payable, -> { active.obligations(%w[CreditCard Loan]) }
+
+  # Outflows owed to someone, whatever the series' status: expense series and
+  # recurring transfers into accounts of the given `debt_types`.
+  scope :obligations, ->(debt_types) {
     # Correlated to the row rather than a free-standing id list: the bare
     # subquery scanned every account in the installation on every call, and
     # the destination must belong to the series' own family.
-    debt_destination = Account.where(accountable_type: %w[CreditCard Loan])
+    debt_destination = Account.where(accountable_type: debt_types)
                               .where("accounts.id = recurring_transactions.destination_account_id")
                               .where("accounts.family_id = recurring_transactions.family_id")
 
-    active.where("amount > 0")
-          .merge(where(destination_account_id: nil).or(where(debt_destination.arel.exists)))
+    where("recurring_transactions.amount > 0")
+      .merge(where(destination_account_id: nil).or(where(debt_destination.arel.exists)))
   }
 
   # The bills that want an action from you. Autopay bills still belong on the

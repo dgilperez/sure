@@ -1878,6 +1878,19 @@ class RecurringTransactionTest < ActiveSupport::TestCase
     assert_equal Money.new(1_200, "USD"), series.monthly_equivalent_amount(on: 3.months.ago.to_date)
   end
 
+  test "obligations keeps expenses and payments into the given debt types, whatever the status" do
+    expense = build_recurring(name: "Rent", status: "paused").tap(&:save!)
+    into_loan = create_transfer_series("Mortgage", accounts(:loan))
+    into_card = create_transfer_series("Card payment", accounts(:credit_card))
+
+    results = @family.recurring_transactions.obligations(%w[Loan])
+
+    assert_includes results, expense
+    assert_includes results, into_loan
+    assert_not_includes results, into_card
+    assert_includes @family.recurring_transactions.obligations(%w[CreditCard Loan]), into_card
+  end
+
   test "within_accounts keeps series whose every endpoint is in the given accounts" do
     shared = accounts(:depository)
     private_account = accounts(:connected)

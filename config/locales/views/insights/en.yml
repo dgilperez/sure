@@ -124,8 +124,8 @@ en:
         near: "%{categories} are close to their limits this month. You've used %{budget_spent_pct}% of your total budget so far."
       budget_on_track: You've spent %{spent} of your %{budgeted} budget (%{budget_spent_pct}%) and everything is within its limit.
       loan_payment_change:
-        up: "Your %{account} payment changes from %{previous_payment} to %{new_payment} on %{effective_on}, %{change_pct}% more, according to the loan's schedule and the rates you entered."
-        down: "Your %{account} payment changes from %{previous_payment} to %{new_payment} on %{effective_on}, %{change_pct}% less, according to the loan's schedule and the rates you entered."
+        up: "Your %{account} payment changes from %{previous_payment} to %{new_payment} on %{effective_on}, %{change_pct}% more, according to the loan's schedule and its recorded rates."
+        down: "Your %{account} payment changes from %{previous_payment} to %{new_payment} on %{effective_on}, %{change_pct}% less, according to the loan's schedule and its recorded rates."
       fixed_commitments_ratio: "Recurring commitments of %{commitments} a month take %{current_ratio}% of your typical monthly income of %{income}, up from %{previous_ratio}% six months ago. %{explanation}"
     fixed_commitments_ratio:
       contributors: "Main changes: %{list}."
