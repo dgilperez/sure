@@ -1,7 +1,8 @@
 # Adds up the fees each bank account was charged over the last 90 days:
 # transactions in the default Fees category or its subcategories, refunds
 # netted out. One insight per account, when the total reaches MIN_TOTAL or
-# when the account charged a fee after charging none in the 90 days before.
+# when the account charged a fee after charging none in the 90 days before
+# (only for an account whose history covers those 90 days).
 class Insight::Generators::BankFeesGenerator < Insight::Generator
   produces "bank_fees"
 
@@ -13,15 +14,15 @@ class Insight::Generators::BankFeesGenerator < Insight::Generator
   # trading, which the portfolio reports, not something the bank charged.
   ACCOUNT_TYPES = %w[Depository CreditCard Loan].freeze
 
-  FeeTotals = Data.define(:account_id, :total, :charges, :last_fee_on, :prior_charges) do
-    def first_fees? = prior_charges.zero?
+  FeeTotals = Data.define(:account_id, :total, :charges, :last_fee_on, :prior_charges, :first_fees) do
+    alias_method :first_fees?, :first_fees
   end
 
   def generate
     category_ids = fee_category_ids
     return [] if category_ids.empty?
 
-    totals = fee_totals(category_ids).select { |row| reportable?(row) }
+    totals = with_first_fees(fee_totals(category_ids)).select { |row| reportable?(row) }
     return [] if totals.empty?
 
     accounts = eligible_accounts.where(id: totals.map(&:account_id)).index_by(&:id)
@@ -50,7 +51,7 @@ class Insight::Generators::BankFeesGenerator < Insight::Generator
           new: row.first_fees?
         },
         period: Period.custom(start_date: window_start, end_date: Date.current),
-        dedup_key: "bank_fees:#{account.id}:#{quarter_token}"
+        dedup_key: "bank_fees:#{account.id}"
       )
     end
   end
@@ -70,7 +71,7 @@ class Insight::Generators::BankFeesGenerator < Insight::Generator
     end
 
     def fee_category_ids
-      fees = family.categories.fees
+      fees = family.categories.fees(family.locale)
       family.categories.where(id: fees).or(family.categories.where(parent_id: fees)).pluck(:id)
     end
 
@@ -99,14 +100,22 @@ class Insight::Generators::BankFeesGenerator < Insight::Generator
           Arel.sql("MAX(entries.date) FILTER (WHERE #{current} AND entries.amount > 0)"),
           Arel.sql("COUNT(*) FILTER (WHERE NOT (#{current}) AND entries.amount > 0)")
         )
-        .map { |values| FeeTotals.new(*values) }
+        .map { |values| FeeTotals.new(*values, false) }
+    end
+
+    # "None in the 90 days before" only means something if the account was
+    # there to be charged: a newly added account has no prior window at all.
+    def with_first_fees(totals)
+      history_starts = Entry.where(account_id: totals.map(&:account_id)).group(:account_id).minimum(:date)
+      covered_since = window_start - WINDOW_DAYS
+
+      totals.map do |row|
+        history_start = history_starts[row.account_id]
+        row.with(first_fees: row.prior_charges.zero? && history_start.present? && history_start <= covered_since)
+      end
     end
 
     def window_start
       Date.current - WINDOW_DAYS
-    end
-
-    def quarter_token(date = Date.current)
-      "#{date.year}-Q#{(date.month - 1) / 3 + 1}"
     end
 end

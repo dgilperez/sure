@@ -17,9 +17,6 @@ class Insight::Generators::BillNotCoveredGenerator < Insight::Generator
 
   HORIZON_DAYS = 14
   BALANCE_MAX_AGE_DAYS = 5
-  # Shortfalls move with every transaction; only a move across one of these
-  # steps is material enough to resurface an acknowledged card.
-  SHORTFALL_BUCKET = 100
 
   Flow = Data.define(:occurrence, :due_on, :amount, :bill)
 
@@ -53,7 +50,6 @@ class Insight::Generators::BillNotCoveredGenerator < Insight::Generator
 
     def build_bill_insight(account, bill, bill_amount, shortfall)
       name = bill.occurrence.recurring_transaction.display_name
-      money = ->(amount) { Money.new(amount, account.currency).format }
 
       build_insight(
         insight_type: "bill_not_covered",
@@ -62,16 +58,18 @@ class Insight::Generators::BillNotCoveredGenerator < Insight::Generator
         template_key: "bill_not_covered",
         facts: {
           name: name,
-          amount: money.(bill_amount),
+          amount: format_money(bill_amount),
           due_on: I18n.l(bill.due_on),
           account: account.name,
-          shortfall: money.(shortfall)
+          shortfall: format_money(shortfall)
         },
+        # The shortfall moves with every transaction and stays a display fact:
+        # one card, and one push, per occurrence. A new due date (a snooze) is
+        # a new situation and resurfaces it.
         metadata: {
           account_id: account.id,
           recurring_occurrence_id: bill.occurrence.id,
-          due_on: bill.due_on.iso8601,
-          shortfall_bucket: (shortfall / SHORTFALL_BUCKET).ceil * SHORTFALL_BUCKET
+          due_on: bill.due_on.iso8601
         },
         dedup_key: "bill_not_covered:#{bill.occurrence.id}"
       )
@@ -79,10 +77,11 @@ class Insight::Generators::BillNotCoveredGenerator < Insight::Generator
 
     # The insight names the account to the whole family, so only accounts
     # every active member can see qualify. Credit cards have no balance that
-    # "covers" a charge, so they never count as the paying account.
+    # "covers" a charge, so they never count as the paying account. Family
+    # currency only, like the amounts the card formats.
     def paying_accounts
       candidates = family.accounts.visible.accessible_by_all_active_members
-                         .where(accountable_type: "Depository").to_a
+                         .where(accountable_type: "Depository", currency: family.currency).to_a
       return [] if candidates.empty?
 
       balance_dates = balance_dates_for(candidates)
@@ -128,9 +127,14 @@ class Insight::Generators::BillNotCoveredGenerator < Insight::Generator
         remaining = occurrence.remaining_amount
         next unless remaining.positive?
 
+        due_today = occurrence.effective_due_on == Date.current
+
         add = ->(account_id, amount, bill: false) do
           account = by_id[account_id]
           next unless account && account.currency == occurrence.currency
+          # Money due out today may already be in the balance; money due in
+          # today and still open has not been seen by the day's sync yet.
+          next if due_today && amount.negative?
 
           flows[account_id] << Flow.new(occurrence: occurrence, due_on: occurrence.effective_due_on, amount: amount, bill: bill)
         end
@@ -144,9 +148,11 @@ class Insight::Generators::BillNotCoveredGenerator < Insight::Generator
       end
     end
 
-    # From tomorrow: whatever is due today has either left the account or is
-    # about to, and the balance cannot tell which. Past-due occurrences are
-    # left out for the same reason.
+    # From today (see flows_by_account for what counts on the day). Past-due
+    # occurrences are left out: paid but unmatched or still to go, the balance
+    # cannot tell. A snoozed bill counts on the date it was snoozed to; an
+    # autopay bill the bank takes early is matched to its payment, and a
+    # matched occurrence is no longer open.
     def upcoming_occurrences(account_ids)
       RecurringOccurrence.preload_confirmed_allocated(
         family.recurring_occurrences
@@ -154,7 +160,7 @@ class Insight::Generators::BillNotCoveredGenerator < Insight::Generator
               .joins(:recurring_transaction)
               .where(recurring_transactions: { status: :active })
               .where("recurring_transactions.account_id IN (:ids) OR recurring_transactions.destination_account_id IN (:ids)", ids: account_ids)
-              .where("#{RecurringOccurrence::EFFECTIVE_DUE_ON_SQL} BETWEEN ? AND ?", Date.current + 1, Date.current + HORIZON_DAYS)
+              .where("#{RecurringOccurrence::EFFECTIVE_DUE_ON_SQL} BETWEEN ? AND ?", Date.current, Date.current + HORIZON_DAYS)
               .includes(recurring_transaction: :merchant)
               .to_a
       )

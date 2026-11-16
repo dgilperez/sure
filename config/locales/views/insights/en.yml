@@ -46,7 +46,7 @@ en:
       budget_at_risk: Budget
       budget_on_track: Budget
       maintained_goal_depleted: Reserve
-      bank_fees: Bank fees
+      bank_fees: Fees
       bill_not_covered: Bills
     meta:
       next_n_days:
@@ -101,7 +101,7 @@ en:
         one: One category needs attention in your budget
         other: "%{count} categories need attention in your budget"
       budget_on_track: Your budget is on track
-      bank_fees: Bank fees on %{account}
+      bank_fees: Fees on %{account}
       bill_not_covered: "%{account} may not cover %{name}"
     templates:
       spending_anomaly:
@@ -123,6 +123,6 @@ en:
         near: "%{categories} are close to their limits this month. You've used %{budget_spent_pct}% of your total budget so far."
       budget_on_track: You've spent %{spent} of your %{budgeted} budget (%{budget_spent_pct}%) and everything is within its limit.
       bank_fees:
-        recurring: Your bank charged %{amount} in fees on %{account} in the last %{days} days.
-        new: Your bank charged %{amount} in fees on %{account} in the last %{days} days, after charging none in the %{days} days before.
+        recurring: "%{account} had %{amount} in fees over the last %{days} days."
+        new: "%{account} had %{amount} in fees over the last %{days} days, after none in the %{days} days before."
       bill_not_covered: "%{name} of %{amount} is due on %{due_on} from %{account}. Counting the other bills and income scheduled on that account until then, it will be about %{shortfall} short."

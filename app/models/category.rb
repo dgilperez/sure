@@ -46,8 +46,9 @@ class Category < ApplicationRecord
       .order(:name, :id)
   }
   scope :roots, -> { where(parent_id: nil) }
-  # The default Fees category under whichever supported locale named it.
-  scope :fees, -> { where(name: all_fees_names) }
+  # The default Fees category: its stored name is in the locale active when it
+  # was created, which is the family's own or the English default.
+  scope :fees, ->(locale) { where(name: [ locale.to_s, "en" ].uniq.map { |name_locale| I18n.t(FEES_NAME_KEY, locale: name_locale) }) }
   # Legacy scopes - classification removed; these now return all categories
   scope :incomes, -> { all }
   scope :expenses, -> { all }
@@ -285,13 +286,9 @@ class Category < ApplicationRecord
     # Returns all possible investment contributions names across all supported locales
     # Used to detect investment contributions category regardless of locale
     def all_investment_contributions_names
-      names_in_every_locale(INVESTMENT_CONTRIBUTIONS_NAME_KEY)
-    end
-
-    # The default Fees category stores its name in the locale that was active
-    # when it was created, so it is found by any of them.
-    def all_fees_names
-      names_in_every_locale(FEES_NAME_KEY)
+      LanguagesHelper::SUPPORTED_LOCALES.map do |locale|
+        I18n.t(INVESTMENT_CONTRIBUTIONS_NAME_KEY, locale: locale)
+      end.uniq
     end
 
     def localized_default_name_for(name)
@@ -301,10 +298,6 @@ class Category < ApplicationRecord
     end
 
     private
-      def names_in_every_locale(i18n_key)
-        LanguagesHelper::SUPPORTED_LOCALES.map { |locale| I18n.t(i18n_key, locale: locale) }.uniq
-      end
-
       def default_category_translation_key_for(name)
         default_category_translation_keys_by_name[name.to_s]
       end

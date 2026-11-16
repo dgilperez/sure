@@ -53,6 +53,60 @@ class Insight::Generators::BillNotCoveredGeneratorTest < ActiveSupport::TestCase
     assert_empty generate
   end
 
+  test "income due today that has not arrived yet counts" do
+    scheduled("Rent", 1460, 3.days.from_now)
+    scheduled("Salary", -800, Date.current)
+
+    assert_empty generate
+  end
+
+  test "income and the bill on the same day count together" do
+    scheduled("Rent", 1460, 3.days.from_now)
+    scheduled("Salary", -800, 3.days.from_now)
+
+    assert_empty generate
+  end
+
+  test "a payment due today is not counted again: it may already be in the balance" do
+    @checking.update_columns(balance: 1500)
+    scheduled("Phone", 600, Date.current)
+    scheduled("Rent", 1460, 3.days.from_now)
+
+    assert_empty generate
+  end
+
+  test "a card payment from checking is a bill" do
+    payment = scheduled("Card payment", 1460, 7.days.from_now, destination: accounts(:credit_card))
+
+    assert_equal payment.id, only_insight.metadata[:recurring_occurrence_id]
+  end
+
+  test "an occurrence in another currency is skipped" do
+    rent = scheduled("Rent", 1460, 7.days.from_now)
+    rent.update!(currency: "EUR")
+
+    assert_empty generate
+  end
+
+  test "the material metadata does not move with the shortfall, so it is one push per occurrence" do
+    rent = scheduled("Rent", 1460, 7.days.from_now)
+    before = only_insight
+
+    @checking.update_columns(balance: 600)
+    after = only_insight
+
+    assert_equal({ account_id: @checking.id, recurring_occurrence_id: rent.id, due_on: rent.due_on.iso8601 }, after.metadata)
+    assert_equal before.metadata, after.metadata
+    assert_equal "$860.00", after.facts[:shortfall]
+  end
+
+  test "an account in another currency than the family's is left out" do
+    @checking.update_columns(currency: "EUR")
+    scheduled("Rent", 1460, 7.days.from_now, currency: "EUR")
+
+    assert_empty generate
+  end
+
   test "income that arrives after the due date does not count" do
     scheduled("Rent", 1460, 7.days.from_now)
     scheduled("Salary", -800, 9.days.from_now)
@@ -159,14 +213,14 @@ class Insight::Generators::BillNotCoveredGeneratorTest < ActiveSupport::TestCase
     # One active series with exactly one open occurrence on `due`. Positive
     # amounts leave `account`, negative ones arrive in it; a destination makes
     # it a transfer into that account.
-    def scheduled(name, amount, due, account: @checking, destination: nil)
+    def scheduled(name, amount, due, account: @checking, destination: nil, currency: "USD")
       due = due.to_date
       series = @family.recurring_transactions.create!(
-        name: name, account: account, destination_account: destination, amount: amount, currency: "USD",
+        name: name, account: account, destination_account: destination, amount: amount, currency: currency,
         expected_day_of_month: due.day, last_occurrence_date: due << 1, next_expected_date: due,
         status: "active", manual: true
       )
       series.recurring_occurrences.delete_all
-      series.recurring_occurrences.create!(family: @family, original_due_on: due, due_on: due, currency: "USD")
+      series.recurring_occurrences.create!(family: @family, original_due_on: due, due_on: due, currency: currency)
     end
 end

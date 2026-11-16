@@ -11,6 +11,9 @@ class Insight::Generators::BankFeesGeneratorTest < ActiveSupport::TestCase
     # family_admin; `investment` is private too unless a test shares it.
     @checking = accounts(:depository)
     @fees = @family.categories.create!(name: I18n.t("models.category.defaults.fees"), color: "#6b7280", lucide_icon: "receipt")
+    # Every account has history from before both windows unless a test says
+    # otherwise, so "no fees before" means the account was there to charge them.
+    @family.accounts.each { |account| history_since(account, 200.days.ago) }
   end
 
   test "flags fees at or above the minimum on an account every member can see" do
@@ -27,10 +30,10 @@ class Insight::Generators::BankFeesGeneratorTest < ActiveSupport::TestCase
     assert_equal "$36.00", insight.facts[:amount]
     assert_equal "Checking Account", insight.facts[:account]
     assert_equal 3, insight.facts[:count]
-    assert_equal "bank_fees:#{@checking.id}:2026-Q4", insight.dedup_key
+    assert_equal "bank_fees:#{@checking.id}", insight.dedup_key
     assert_equal (Date.current - 90), insight.period_start
     assert_equal Date.current, insight.period_end
-    assert_equal "Your bank charged $36.00 in fees on Checking Account in the last 90 days.",
+    assert_equal "Checking Account had $36.00 in fees over the last 90 days.",
       Insight::BodyWriter.new.write(insight)
   end
 
@@ -51,6 +54,32 @@ class Insight::Generators::BankFeesGeneratorTest < ActiveSupport::TestCase
     assert insight.metadata[:new]
   end
 
+  test "a small fee on an account without history from before both windows is not a first fee" do
+    Entry.where(account: @checking).delete_all
+    history_since(@checking, 120.days.ago)
+    fee(@checking, 3, 5.days.ago)
+
+    assert_nil generate_for(@checking), "an account that did not exist 180 days ago cannot prove it charged no fees then"
+
+    fee(@checking, 9, 4.days.ago)
+    assert_equal "bank_fees.recurring", generate_for(@checking).template_key, "the minimum still applies"
+  end
+
+  test "the card stays the same across quarters and comes back only with a new fee" do
+    fee(@checking, 12, 20.days.ago)
+    fee(@checking, 1, 100.days.ago)
+    before = generate_for(@checking)
+
+    travel_to Date.new(2027, 1, 2)
+    after = generate_for(@checking)
+
+    assert_equal before.dedup_key, after.dedup_key
+    assert_equal before.metadata, after.metadata
+
+    fee(@checking, 12, Date.current)
+    assert_not_equal before.metadata, generate_for(@checking).metadata
+  end
+
   test "fees that only fall in the prior window are not flagged" do
     fee(@checking, 50, 100.days.ago)
 
@@ -65,7 +94,8 @@ class Insight::Generators::BankFeesGeneratorTest < ActiveSupport::TestCase
     assert_nil generate_for(@checking)
   end
 
-  test "subcategories of Fees count, and so does a Fees category named in another locale" do
+  test "subcategories of Fees count, and so does the Fees category named in the family's locale" do
+    @family.update!(locale: "es")
     @fees.update!(name: I18n.t("models.category.defaults.fees", locale: :es))
     overdraft = @family.categories.create!(name: "Overdraft", parent: @fees, color: "#6b7280", lucide_icon: "receipt")
     fee(@checking, 8, 30.days.ago, category: overdraft)
@@ -75,9 +105,22 @@ class Insight::Generators::BankFeesGeneratorTest < ActiveSupport::TestCase
     assert_equal "$16.00", generate_for(@checking).facts[:amount]
   end
 
-  test "excluded rows are ignored" do
-    fee(@checking, 40, 10.days.ago).update!(excluded: true)
+  test "a category named Fees in a locale the family does not use is not the Fees category" do
+    @fees.update!(name: I18n.t("models.category.defaults.fees", locale: :fr))
+    fee(@checking, 40, 10.days.ago)
+
+    assert_nil generate_for(@checking)
+  end
+
+  test "excluded, pending, transfer-kind and split-parent rows are ignored" do
     fee(@checking, 1, 100.days.ago)
+    fee(@checking, 40, 10.days.ago).update!(excluded: true)
+    pending = fee(@checking, 40, 9.days.ago)
+    pending.entryable.update!(extra: { "plaid" => { "pending" => true } })
+    create_transaction(account: @checking, amount: 40, date: 8.days.ago.to_date, category: @fees, kind: "funds_movement")
+    parent = fee(@checking, 40, 7.days.ago)
+    Entry.create!(account: @checking, parent_entry: parent, name: "Part", date: parent.date, currency: "USD", amount: 40,
+                  entryable: Transaction.new(category: categories(:food_and_drink)))
 
     assert_nil generate_for(@checking)
   end
@@ -116,6 +159,10 @@ class Insight::Generators::BankFeesGeneratorTest < ActiveSupport::TestCase
   private
     def fee(account, amount, date, category: @fees)
       create_transaction(account: account, amount: amount, date: date.to_date, name: "Maintenance fee", category: category)
+    end
+
+    def history_since(account, date)
+      create_transaction(account: account, amount: 1, date: date.to_date, name: "Opening activity")
     end
 
     def generate_for(account)
