@@ -10,7 +10,9 @@ module InsightsHelper
     "budget_on_track" => "circle-check",
     # Same shield the reserve panel uses on the goal page, so the two read as
     # the same object seen from two places.
-    "maintained_goal_depleted" => "shield-alert"
+    "maintained_goal_depleted" => "shield-alert",
+    "bank_fees" => "receipt",
+    "bill_not_covered" => "calendar-x"
   }.freeze
 
   def insight_icon_key(insight)
@@ -81,6 +83,10 @@ module InsightsHelper
     when "budget_on_track"
       # Still the right figure here, where overall usage *is* the subject.
       facts["budget_spent_pct"] && [ "#{facts["budget_spent_pct"]}%", t("insights.figures.of_budget") ]
+    when "bank_fees"
+      facts["amount"] && [ facts["amount"], t("insights.figures.fee_charges", count: facts["count"].to_i) ]
+    when "bill_not_covered"
+      facts["shortfall"] && [ facts["shortfall"], t("insights.figures.short_on", date: facts["due_on"]) ]
     end
   end
 
@@ -98,9 +104,16 @@ module InsightsHelper
         text: t("insights.actions.spending_anomaly", category: category.name),
         href: transactions_path(q: { categories: [ category.name ] })
       }
-    when "idle_cash"
-      account = insight.family.accounts.visible.find_by(id: metadata["account_id"])
-      account && { text: t("insights.actions.idle_cash"), href: account_path(account) }
+    when "idle_cash", "bill_not_covered"
+      account = insight_account(insight)
+      account && { text: t("insights.actions.#{insight.insight_type}"), href: account_path(account) }
+    when "bank_fees"
+      account = insight_account(insight)
+      fee_names = insight.family.categories.fees.pluck(:name)
+      return nil unless account && fee_names.any? && insight.period_start && insight.period_end
+      { text: t("insights.actions.bank_fees"),
+        href: transactions_path(q: { account_ids: [ account.id ], categories: fee_names,
+                                     start_date: insight.period_start.to_s, end_date: insight.period_end.to_s }) }
     when "subscription_audit"
       { text: t("insights.actions.subscription_audit"), href: recurring_transactions_path }
     when "cash_flow_warning"
@@ -181,7 +194,10 @@ module InsightsHelper
       metadata["direction"] == "below" ? :positive : :warning
     when "cash_flow_warning"
       metadata["negative"] ? :negative : :warning
-    when "budget_at_risk", "maintained_goal_depleted"
+    when "bill_not_covered"
+      # Paying the bill would take the account below zero.
+      :negative
+    when "budget_at_risk", "maintained_goal_depleted", "bank_fees"
       # Warning, not negative: the reserve is short, not overdrawn, and red is
       # reserved here for money actually going the wrong side of zero.
       :warning
@@ -191,6 +207,10 @@ module InsightsHelper
   end
 
   private
+    def insight_account(insight)
+      insight.family.accounts.visible.find_by(id: (insight.metadata || {})["account_id"])
+    end
+
     # "June" for month-aligned periods, "Next 30 days" / "Last 30 days" for
     # rolling windows, an explicit range otherwise; subject name (account,
     # merchant) for insights without a period.
