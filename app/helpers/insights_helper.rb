@@ -10,7 +10,9 @@ module InsightsHelper
     "budget_on_track" => "circle-check",
     # Same shield the reserve panel uses on the goal page, so the two read as
     # the same object seen from two places.
-    "maintained_goal_depleted" => "shield-alert"
+    "maintained_goal_depleted" => "shield-alert",
+    "loan_payment_change" => "landmark",
+    "fixed_commitments_ratio" => "scale"
   }.freeze
 
   def insight_icon_key(insight)
@@ -81,6 +83,10 @@ module InsightsHelper
     when "budget_on_track"
       # Still the right figure here, where overall usage *is* the subject.
       facts["budget_spent_pct"] && [ "#{facts["budget_spent_pct"]}%", t("insights.figures.of_budget") ]
+    when "loan_payment_change"
+      facts["new_payment"] && [ facts["new_payment"], facts["effective_on"] ]
+    when "fixed_commitments_ratio"
+      facts["current_ratio"] && [ "#{facts["current_ratio"]}%", t("insights.figures.of_income") ]
     end
   end
 
@@ -98,13 +104,13 @@ module InsightsHelper
         text: t("insights.actions.spending_anomaly", category: category.name),
         href: transactions_path(q: { categories: [ category.name ] })
       }
-    when "idle_cash"
+    when "idle_cash", "loan_payment_change"
       account = insight.family.accounts.visible.find_by(id: metadata["account_id"])
-      account && { text: t("insights.actions.idle_cash"), href: account_path(account) }
+      account && { text: t("insights.actions.#{insight.insight_type}"), href: account_path(account) }
     when "subscription_audit"
       { text: t("insights.actions.subscription_audit"), href: recurring_transactions_path }
-    when "cash_flow_warning"
-      { text: t("insights.actions.cash_flow_warning"), href: recurring_transactions_path }
+    when "cash_flow_warning", "fixed_commitments_ratio"
+      { text: t("insights.actions.#{insight.insight_type}"), href: recurring_transactions_path }
     when "savings_rate_change"
       return nil unless insight.period_start && insight.period_end
       { text: t("insights.actions.savings_rate_change"),
@@ -181,7 +187,9 @@ module InsightsHelper
       metadata["direction"] == "below" ? :positive : :warning
     when "cash_flow_warning"
       metadata["negative"] ? :negative : :warning
-    when "budget_at_risk", "maintained_goal_depleted"
+    when "loan_payment_change"
+      metadata["new_payment"].to_f < metadata["previous_payment"].to_f ? :positive : :warning
+    when "budget_at_risk", "maintained_goal_depleted", "fixed_commitments_ratio"
       # Warning, not negative: the reserve is short, not overdrawn, and red is
       # reserved here for money actually going the wrong side of zero.
       :warning

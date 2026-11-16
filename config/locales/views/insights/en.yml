@@ -46,6 +46,8 @@ en:
       budget_at_risk: Budget
       budget_on_track: Budget
       maintained_goal_depleted: Reserve
+      loan_payment_change: Loan payment
+      fixed_commitments_ratio: Fixed commitments
     meta:
       next_n_days:
         one: Next day
@@ -60,6 +62,7 @@ en:
       on_pace: on pace
       of_budget: of budget
       need_attention: need attention
+      of_income: of income
       days_overdue:
         one: "%{count} day overdue"
         other: "%{count} days overdue"
@@ -75,6 +78,8 @@ en:
       idle_cash: Go to account
       budget: View budget
       maintained_goal_depleted: View reserve
+      loan_payment_change: View loan
+      fixed_commitments_ratio: Review recurring transactions
     titles:
       spending_anomaly:
         above: "%{category} spending is trending up"
@@ -93,6 +98,12 @@ en:
         one: One category needs attention in your budget
         other: "%{count} categories need attention in your budget"
       budget_on_track: Your budget is on track
+      loan_payment_change:
+        up: "%{account} payment is going up"
+        down: "%{account} payment is going down"
+      fixed_commitments_ratio:
+        up: Fixed commitments are taking more of your income
+        over_half: Fixed commitments now take half your income or more
     templates:
       spending_anomaly:
         above: You're on pace to spend %{projected_spend} on %{category} this month, about %{deviation_pct}% more than your recent monthly average of %{baseline_spend}.
@@ -112,3 +123,13 @@ en:
         over: "%{categories} went over budget this month. You've used %{budget_spent_pct}% of your total budget so far."
         near: "%{categories} are close to their limits this month. You've used %{budget_spent_pct}% of your total budget so far."
       budget_on_track: You've spent %{spent} of your %{budgeted} budget (%{budget_spent_pct}%) and everything is within its limit.
+      loan_payment_change:
+        up: "Your %{account} payment changes from %{previous_payment} to %{new_payment} on %{effective_on}, %{change_pct}% more, according to the loan's schedule and the rates you entered."
+        down: "Your %{account} payment changes from %{previous_payment} to %{new_payment} on %{effective_on}, %{change_pct}% less, according to the loan's schedule and the rates you entered."
+      fixed_commitments_ratio: "Recurring commitments of %{commitments} a month take %{current_ratio}% of your typical monthly income of %{income}, up from %{previous_ratio}% six months ago. %{explanation}"
+    fixed_commitments_ratio:
+      contributors: "Main changes: %{list}."
+      contributor:
+        new: "%{name} (new, %{amount} a month)"
+        raised: "%{name} (%{amount} a month more)"
+      income_fell: Your typical monthly income fell from %{previous_income} to %{current_income}.
