@@ -368,6 +368,88 @@ class GenerateInsightsJobTest < ActiveJob::TestCase
     assert insight.reload.expired?, "a hidden row whose condition cleared must not come back stale once access returns"
   end
 
+  # An access change expires a total without the user doing anything (see
+  # Insight.expire_totals_after_access_change). The rebuild brings it back
+  # with figures from the new account set, as the user left it: read stays
+  # read, unread stays unread, and it is not pushed again as new.
+  test "a total expired by an access change returns rebuilt and as the user left it" do
+    unread = generated_insight(display_balance: 1000).with(dedup_key: "idle_cash:unread")
+    read = generated_insight(display_balance: 1000)
+    stub_generated([ unread, read ].map { |insight| with_digest(insight, "old-set") })
+    GenerateInsightsJob.perform_now(family_id: @family.id)
+    @family.insights.find_by(dedup_key: read.dedup_key).mark_read!
+
+    Insight.expire_totals_after_access_change(@family.id)
+
+    DeliverInsightNotificationJob.expects(:enqueue_for).never
+    stub_generated([ unread, read ].map { |insight| with_digest(insight.with(facts: insight.facts.merge(balance: "$700")), "new-set") })
+    GenerateInsightsJob.perform_now(family_id: @family.id)
+
+    unread_row = @family.insights.find_by(dedup_key: unread.dedup_key)
+    read_row = @family.insights.find_by(dedup_key: read.dedup_key)
+    assert unread_row.active?
+    assert read_row.read?
+    assert_not_nil read_row.read_at
+    [ unread_row, read_row ].each do |row|
+      assert_equal "new-set", row.metadata["accounts_digest"]
+      assert_includes row.body, "$700"
+      assert_not_includes row.body, "$1000"
+    end
+  end
+
+  test "a total expired by an access change whose numbers changed resurfaces as new" do
+    stub_generated([ with_digest(generated_insight, "old-set") ])
+    GenerateInsightsJob.perform_now(family_id: @family.id)
+    insight = @family.insights.find_by(dedup_key: generated_insight.dedup_key)
+    insight.mark_read!
+
+    Insight.expire_totals_after_access_change(@family.id)
+    stub_generated([ with_digest(generated_insight(balance: 9000.0), "new-set") ])
+    GenerateInsightsJob.perform_now(family_id: @family.id)
+
+    insight.reload
+    assert insight.active?
+    assert_nil insight.read_at
+    assert_equal 9000.0, insight.metadata["balance"]
+  end
+
+  test "a total expired by an access change stays expired when the rebuild no longer finds it" do
+    stub_generated([ with_digest(generated_insight, "old-set") ])
+    GenerateInsightsJob.perform_now(family_id: @family.id)
+
+    Insight.expire_totals_after_access_change(@family.id)
+    stub_generated([], succeeded_types: [ "idle_cash" ])
+    GenerateInsightsJob.perform_now(family_id: @family.id)
+
+    assert @family.insights.find_by(dedup_key: generated_insight.dedup_key).expired?
+  end
+
+  # End to end with the real generators: revoking a share takes the budget
+  # card off the feed, and the scheduled job brings it back computed from the
+  # accounts every member can still open.
+  test "after an access change the scheduled job rebuilds the totals from the new account set" do
+    category = @family.categories.create!(name: "Access Test Cat", color: "#101010", lucide_icon: "circle")
+    budgets(:one).budget_categories.create!(category: category, budgeted_spending: 100, currency: "USD")
+    accounts(:depository).entries.create!(name: "Groceries", date: Date.current, currency: "USD", amount: 95,
+                                          entryable: Transaction.new(category: category))
+    GenerateInsightsJob.perform_now(family_id: @family.id)
+    budget_card = @family.insights.find_by!(insight_type: "budget_at_risk")
+    old_digest = budget_card.metadata["accounts_digest"]
+
+    accounts(:credit_card).unshare_with!(users(:family_member))
+    assert budget_card.reload.expired?
+    assert_not_includes @family.insights.visible, budget_card
+
+    perform_enqueued_jobs(only: GenerateInsightsJob)
+
+    budget_card.reload
+    assert budget_card.active?
+    assert_not_equal old_digest, budget_card.metadata["accounts_digest"]
+    assert_equal Digest::SHA256.hexdigest(@family.accounts.accessible_by_all_active_members.order(:id).pluck(:id).join(",")),
+                 budget_card.metadata["accounts_digest"]
+    assert_includes @family.insights.visible, budget_card
+  end
+
   private
     def enable_preview_features(family)
       family.users.each { |user| set_preview_features(user, true) }
@@ -379,6 +461,10 @@ class GenerateInsightsJobTest < ActiveJob::TestCase
 
     def set_preview_features(user, enabled)
       user.update!(preferences: (user.preferences || {}).merge("preview_features_enabled" => enabled))
+    end
+
+    def with_digest(generated, digest)
+      generated.with(metadata: generated.metadata.merge(accounts_digest: digest))
     end
 
     def stub_generated(generated_insights, succeeded_types: nil)

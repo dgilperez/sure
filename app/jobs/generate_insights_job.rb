@@ -118,14 +118,17 @@ class GenerateInsightsJob < ApplicationJob
             generated_at: Time.current,
             dedup_key: generated.dedup_key
           )
-        elsif !existing.expired? && existing.metadata != metadata &&
+        elsif (!existing.expired? || expired_by_access_change?(existing, metadata)) && existing.metadata != metadata &&
               existing.metadata.except(*ACCOUNT_SCOPE_KEYS) == metadata.except(*ACCOUNT_SCOPE_KEYS)
           # Only the accounts behind the insight changed (a share granted or
           # revoked, or a row written before these keys existed). The prose
           # may quote figures from the old set, so it is rewritten, but the
-          # signal itself did not change: read and dismissed state stay.
-          existing.update!(title: generated.title, body: writer.write(generated), metadata: metadata,
-                           facts: facts, generated_at: Time.current)
+          # signal itself did not change: read and dismissed state stay, and
+          # a total hidden while access changed returns as it was.
+          attributes = { title: generated.title, body: writer.write(generated), metadata: metadata,
+                         facts: facts, generated_at: Time.current }
+          attributes[:status] = existing.read_at ? "read" : "active" if existing.expired?
+          existing.update!(attributes)
           nil
         elsif existing.metadata != metadata
           # The numbers changed materially: refresh the prose and resurface the
@@ -181,6 +184,12 @@ class GenerateInsightsJob < ApplicationJob
         )
         nil
       end
+    end
+
+    # Insight.expire_totals_after_access_change drops the digest when it
+    # expires a total; an expiry because the condition cleared keeps it.
+    def expired_by_access_change?(existing, metadata)
+      existing.expired? && metadata.key?("accounts_digest") && !existing.metadata.key?("accounts_digest")
     end
 
     # GeneratedInsight metadata/facts may hold symbols, dates, or BigDecimals;

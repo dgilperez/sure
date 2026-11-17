@@ -1,4 +1,6 @@
 class AccountShare < ApplicationRecord
+  include ChangesInsightAccess
+
   belongs_to :account
   belongs_to :user
 
@@ -40,6 +42,17 @@ class AccountShare < ApplicationRecord
   end
 
   private
+    # Permission and include_in_finances leave the account readable, so only
+    # a share appearing, disappearing or moving changes who can open it.
+    def insight_access_changed?
+      previously_new_record? || destroyed? || saved_change_to_account_id? || saved_change_to_user_id?
+    end
+
+    # The account is gone when it was deleted with its shares; nobody lost
+    # access to figures they could open before, so there is nothing to expire.
+    def insight_access_family_ids
+      [ account&.family_id ]
+    end
 
     def cannot_share_with_owner
       if account && user && account.owner_id == user_id

@@ -90,6 +90,30 @@ class Insight < ApplicationRecord
     where("NOT (insights.metadata ? 'recurring_transaction_id')").or(where(current_series.arel.exists))
   }
 
+  # A total (metadata accounts_digest) has no single account that
+  # about_shared_accounts could recheck on read. When access changes, the
+  # family's totals on the feed may quote accounts someone can no longer open,
+  # so they expire at once and GenerateInsightsJob rebuilds them shortly after
+  # from the accounts every member can still see.
+  #
+  # The digest is dropped with the status: it names an account set nobody
+  # holds any more, and its absence is how the job tells this expiry from a
+  # condition that cleared, so the rebuilt row keeps the read state it had.
+  #
+  # Only an expiry schedules a job. The rest of a burst (a sharing form saving
+  # several members, a member joining and leaving) finds nothing left to
+  # expire, and the one job reads access as it is when it runs.
+  ACCESS_CHANGE_REBUILD_DELAY = 2.minutes
+
+  def self.expire_totals_after_access_change(family_id)
+    expired = where(family_id: family_id, status: %w[active read])
+      .where("metadata ? 'accounts_digest'")
+      .update_all([ "status = 'expired', metadata = metadata - 'accounts_digest', updated_at = ?", Time.current ])
+    return if expired.zero?
+
+    GenerateInsightsJob.set(wait: ACCESS_CHANGE_REBUILD_DELAY).perform_later(family_id: family_id)
+  end
+
   scope :ordered, -> {
     order(Arel.sql("CASE insights.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END"))
       .order(generated_at: :desc)

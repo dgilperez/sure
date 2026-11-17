@@ -1,5 +1,6 @@
 class Account < ApplicationRecord
   include AASM, Syncable, Monetizable, Chartable, Linkable, Enrichable, Anchorable, Reconcileable, TaxTreatable, Logoable
+  include ChangesInsightAccess
 
   before_validation :assign_default_owner, if: -> { owner_id.blank? }
 
@@ -968,6 +969,11 @@ class Account < ApplicationRecord
   end
 
   private
+    # The owner can always open the account; nobody else can without a share.
+    def insight_access_changed?
+      saved_change_to_owner_id? || saved_change_to_family_id?
+    end
+
     # [date, signed amount in account currency] for each scheduled entry that
     # contributes to the projection.
     def scheduled_entry_flows

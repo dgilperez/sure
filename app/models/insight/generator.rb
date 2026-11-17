@@ -67,9 +67,10 @@ class Insight::Generator
 
     # Totals have no single account that Insight.about_shared_accounts could
     # recheck on read, so an aggregate insight carries the account set it was
-    # computed from. When a share is granted or revoked the digest changes and
-    # the job rewrites the body (see GenerateInsightsJob#upsert_insights), so
-    # prose written from the old set does not outlive it.
+    # computed from. An access change expires it at once and schedules a
+    # rebuild (Insight.expire_totals_after_access_change); the new digest
+    # makes the job rewrite the body (see GenerateInsightsJob#upsert_insights),
+    # so prose written from the old set does not outlive it.
     def shared_accounts_digest
       @shared_accounts_digest ||= Digest::SHA256.hexdigest(shared_account_ids.join(","))
     end

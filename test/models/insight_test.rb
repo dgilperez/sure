@@ -1,6 +1,8 @@
 require "test_helper"
 
 class InsightTest < ActiveSupport::TestCase
+  include ActiveJob::TestHelper
+
   setup do
     @insight = insights(:spending_anomaly_dining)
   end
@@ -189,12 +191,123 @@ class InsightTest < ActiveSupport::TestCase
     assert_not_includes family.insights.visible, insight
   end
 
+  # A total has no account to recheck on read, so a change in who can see
+  # which account takes it off the feed at once, and one job rebuilds it from
+  # the accounts everyone can still open.
+  test "revoking a share expires the household's totals and schedules one rebuild" do
+    family = families(:dylan_family)
+    total = aggregate_insight(family)
+    read_total = aggregate_insight(family, dedup_key: "savings_rate_change:read").tap(&:mark_read!)
+    acknowledged = aggregate_insight(family, dedup_key: "savings_rate_change:old").tap(&:acknowledge!)
+    per_account = idle_cash_insight(family, accounts(:depository))
+
+    freeze_time do
+      assert_enqueued_jobs 1, only: GenerateInsightsJob do
+        accounts(:depository).unshare_with!(users(:family_member))
+      end
+      assert_enqueued_with job: GenerateInsightsJob, args: [ { family_id: family.id } ],
+                           at: Insight::ACCESS_CHANGE_REBUILD_DELAY.from_now
+    end
+
+    assert total.reload.expired?
+    assert read_total.reload.expired?
+    assert_not total.metadata.key?("accounts_digest"), "the digest names an account set nobody holds any more"
+    assert acknowledged.reload.acknowledged?, "what the user put away stays put away"
+    assert per_account.reload.active?, "a row about one account is already hidden on read"
+    assert_not_includes family.insights.visible, total
+  end
+
+  test "a member joining, leaving and rejoining schedules a single rebuild" do
+    family = families(:dylan_family)
+    total = aggregate_insight(family)
+
+    assert_enqueued_jobs 1, only: GenerateInsightsJob do
+      newcomer = family.users.create!(email: "newcomer@example.com", password: "password123!A",
+                                      first_name: "New", last_name: "Member", role: "member")
+      newcomer.update!(active: false)
+      newcomer.update!(active: true)
+    end
+
+    assert total.reload.expired?
+  end
+
+  test "deactivating a member expires the household's totals" do
+    family = families(:dylan_family)
+    total = aggregate_insight(family)
+
+    assert_enqueued_jobs 1, only: GenerateInsightsJob do
+      users(:family_member).deactivate
+    end
+
+    assert total.reload.expired?
+  end
+
+  test "handing an account to another member expires the household's totals" do
+    family = families(:dylan_family)
+    total = aggregate_insight(family)
+
+    assert_enqueued_jobs 1, only: GenerateInsightsJob do
+      accounts(:connected).update!(owner: users(:family_member))
+    end
+
+    assert total.reload.expired?
+  end
+
+  test "sharing an account with a member expires the household's totals" do
+    family = families(:dylan_family)
+    total = aggregate_insight(family)
+
+    assert_enqueued_jobs 1, only: GenerateInsightsJob do
+      accounts(:connected).share_with!(users(:family_member))
+    end
+
+    assert total.reload.expired?
+  end
+
+  test "changes that leave access as it was expire nothing" do
+    family = families(:dylan_family)
+    total = aggregate_insight(family)
+
+    assert_no_enqueued_jobs only: GenerateInsightsJob do
+      accounts(:depository).update!(name: "Renamed checking")
+      account_shares(:depository_shared_with_member).update!(permission: "read_only", include_in_finances: false)
+      users(:family_member).update!(first_name: "Renamed")
+    end
+
+    assert total.reload.active?
+  end
+
+  test "an access change schedules nothing when no total is on the feed" do
+    family = families(:dylan_family)
+    aggregate_insight(family).acknowledge!
+
+    assert_no_enqueued_jobs only: GenerateInsightsJob do
+      accounts(:depository).unshare_with!(users(:family_member))
+    end
+  end
+
+  test "an access change leaves other families' totals alone" do
+    other = aggregate_insight(families(:empty))
+
+    accounts(:depository).unshare_with!(users(:family_member))
+
+    assert other.reload.active?
+  end
+
   private
     def subscription_audit_insight(family, series, account_id: nil)
       family.insights.create!(
         insight_type: "subscription_audit", priority: "medium", status: "active", title: "Audit", body: "body",
         metadata: { "recurring_transaction_id" => series.id, "account_id" => account_id }.compact,
         dedup_key: "subscription_audit:#{series.id}", generated_at: Time.current
+      )
+    end
+
+    def aggregate_insight(family, dedup_key: "savings_rate_change:current")
+      family.insights.create!(
+        insight_type: "savings_rate_change", priority: "medium", status: "active", title: "Savings", body: "body",
+        metadata: { "current_rate" => 40.0, "accounts_digest" => "computed-from-the-old-set" },
+        dedup_key: dedup_key, generated_at: Time.current
       )
     end
 

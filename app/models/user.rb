@@ -2,6 +2,7 @@ class User < ApplicationRecord
   has_many :financekit_items, dependent: :destroy
 
   include Encryptable
+  include ChangesInsightAccess
 
   # Allow nil password for SSO-only users (JIT provisioning).
   # Custom validation ensures password is present for non-SSO registration.
@@ -918,6 +919,12 @@ class User < ApplicationRecord
   end
 
   private
+    # A member joining, leaving or switching active changes who must be able
+    # to open an account before the family's feed may count it.
+    def insight_access_changed?
+      previously_new_record? || destroyed? || saved_change_to_active? || saved_change_to_family_id?
+    end
+
     def apply_ui_layout_defaults
       self.ui_layout = (ui_layout.presence || self.class.default_ui_layout)
     end
