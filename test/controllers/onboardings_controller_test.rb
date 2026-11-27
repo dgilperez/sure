@@ -147,6 +147,30 @@ class OnboardingsControllerTest < ActionDispatch::IntegrationTest
     assert_not_nil @user.onboarded_at
   end
 
+  test "typing another tool without ticking other saves it and ticks other on revisit" do
+    patch tools_onboarding_url, params: { user: {
+      onboarding_tools: %w[ynab], onboarding_other_tool: "Excel sheet", onboarding_ai_mode: "none", rendered_ai_mode: "none"
+    } }
+
+    @user.reload
+    assert_equal %w[ynab other], @user.onboarding_tools
+    assert_equal "Excel sheet", @user.onboarding_other_tool
+
+    get tools_onboarding_url
+    assert_select "input[type=checkbox][value=other][checked]"
+    assert_select "input[name='user[onboarding_other_tool]'][value='Excel sheet']"
+  end
+
+  test "a blank other tool doesn't tick other" do
+    patch tools_onboarding_url, params: { user: {
+      onboarding_tools: %w[ynab], onboarding_other_tool: "   ", onboarding_ai_mode: "none", rendered_ai_mode: "none"
+    } }
+
+    @user.reload
+    assert_equal %w[ynab], @user.onboarding_tools
+    assert_nil @user.onboarding_other_tool
+  end
+
   test "no AI turns the assistant off" do
     @user.update!(ai_enabled: true)
     patch tools_onboarding_url, params: { user: { onboarding_ai_mode: "none", rendered_ai_mode: "builtin" } }

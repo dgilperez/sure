@@ -735,6 +735,7 @@ class User < ApplicationRecord
   end
 
   # "Nothing yet" excludes every other tool and unknown values are dropped.
+  # Typing another tool counts as choosing "Other", since the field shows without the box.
   # Built-in and external AI enable this user's AI features; only no AI turns them off.
   # The household's assistant settings still select the conversation backend.
   # For an admin that switch is also the household's AI consent (Family#ai_consented?).
@@ -743,8 +744,12 @@ class User < ApplicationRecord
   # the AI switch stays as it is now, even if it changed after the page rendered.
   def save_onboarding_tools_and_ai(tools:, other_tool:, ai_mode:, rendered_ai_mode: nil)
     chosen = Array(tools).map(&:to_s)
-    chosen = chosen.include?(ONBOARDING_NO_TOOLS) ? [ ONBOARDING_NO_TOOLS ] : chosen & ONBOARDING_TOOLS
-    other = other_tool.to_s.strip.first(ONBOARDING_OTHER_TOOL_MAX_LENGTH).presence if chosen.include?("other")
+    if chosen.include?(ONBOARDING_NO_TOOLS)
+      chosen, other = [ ONBOARDING_NO_TOOLS ], nil
+    else
+      other = other_tool.to_s.strip.first(ONBOARDING_OTHER_TOOL_MAX_LENGTH).presence
+      chosen = (chosen & ONBOARDING_TOOLS) | (other ? [ "other" ] : [])
+    end
     mode = ONBOARDING_AI_MODES.include?(ai_mode.to_s) ? ai_mode.to_s : "none"
 
     transaction do

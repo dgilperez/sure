@@ -19,7 +19,7 @@ class UserTest < ActiveSupport::TestCase
   test "onboarding answers keep only known tools and make nothing yet exclusive" do
     user = users(:family_admin)
 
-    user.save_onboarding_tools_and_ai(tools: %w[ynab made_up], other_tool: "Ignored", ai_mode: "builtin")
+    user.save_onboarding_tools_and_ai(tools: %w[ynab made_up], other_tool: nil, ai_mode: "builtin")
     assert_equal [ "ynab" ], user.onboarding_tools
     assert_nil user.onboarding_other_tool
 
@@ -28,11 +28,34 @@ class UserTest < ActiveSupport::TestCase
     assert_nil user.onboarding_other_tool
   end
 
-  test "onboarding keeps the other tool only when other is chosen, trimmed and capped" do
+  test "onboarding keeps the other tool trimmed and capped" do
     user = users(:family_admin)
 
     user.save_onboarding_tools_and_ai(tools: %w[other], other_tool: "  #{"x" * 100}  ", ai_mode: "none")
     assert_equal "x" * User::ONBOARDING_OTHER_TOOL_MAX_LENGTH, user.reload.onboarding_other_tool
+  end
+
+  test "onboarding counts a typed other tool as choosing other" do
+    user = users(:family_admin)
+
+    user.save_onboarding_tools_and_ai(tools: %w[ynab], other_tool: "Excel sheet", ai_mode: "none")
+    assert_equal %w[ynab other], user.reload.onboarding_tools
+    assert_equal "Excel sheet", user.onboarding_other_tool
+
+    user.save_onboarding_tools_and_ai(tools: %w[other ynab], other_tool: "Excel sheet", ai_mode: "none")
+    assert_equal %w[other ynab], user.reload.onboarding_tools
+  end
+
+  test "onboarding ignores a blank other tool" do
+    user = users(:family_admin)
+
+    user.save_onboarding_tools_and_ai(tools: %w[ynab], other_tool: "   ", ai_mode: "none")
+    assert_equal %w[ynab], user.reload.onboarding_tools
+    assert_nil user.onboarding_other_tool
+
+    user.save_onboarding_tools_and_ai(tools: %w[other], other_tool: "", ai_mode: "none")
+    assert_equal %w[other], user.reload.onboarding_tools
+    assert_nil user.onboarding_other_tool
   end
 
   test "onboarding AI mode drives ai_enabled and falls back to no AI" do
